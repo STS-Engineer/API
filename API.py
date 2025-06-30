@@ -1,11 +1,10 @@
 # app.py
 # --- Dependencies ---
-# To install the necessary libraries, run:
-# pip install Flask Flask-SQLAlchemy psycopg2-binary python-dotenv
 
 import os
 import socket # To automatically find the local IP address
 import logging # To show informational messages
+import sys # For system exit
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import exc
@@ -20,41 +19,54 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
-# --- Database Configuration ---
+# --- Database Configuration with Validation ---
 DB_USER = os.environ.get("DB_USER")
 DB_PASSWORD_RAW = os.environ.get("DB_PASSWORD")
 DB_HOST = os.environ.get("DB_HOST")
 DB_PORT = os.environ.get("DB_PORT", "5432")
 DB_NAME = os.environ.get("DB_NAME")
 
+# Validate required environment variables
+required_env_vars = ["DB_USER", "DB_PASSWORD", "DB_HOST", "DB_NAME"]
+missing_vars = [var for var in required_env_vars if not os.environ.get(var)]
+
+if missing_vars:
+    logging.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+    logging.error("Please ensure your .env file contains all required database configuration variables.")
+    sys.exit(1)
+
 if DB_PASSWORD_RAW:
     DB_PASSWORD_ENCODED = quote_plus(DB_PASSWORD_RAW)
 else:
     DB_PASSWORD_ENCODED = ""
 
-if DB_NAME:
-    app.config['SQLALCHEMY_DATABASE_URI'] = \
-        f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD_ENCODED}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = ''
+# Construct database URI only if all required variables are present
+app.config['SQLALCHEMY_DATABASE_URI'] = \
+    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD_ENCODED}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+logging.info(f"Database URI configured for: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+
 # Initialize the SQLAlchemy extension
-db = SQLAlchemy(app)
+try:
+    db = SQLAlchemy(app)
+    logging.info("SQLAlchemy initialized successfully")
+except Exception as e:
+    logging.error(f"Failed to initialize SQLAlchemy: {str(e)}")
+    sys.exit(1)
 
 # --- UPDATED Database Model Definition ---
-# This class now matches your specified schema with varchar for dates.
 class EdiRecord(db.Model):
-    __tablename__ = 'EDITunisia' # Name of the table in your database
+    __tablename__ = 'EDITunisia'
 
     ID = db.Column(db.Integer, primary_key=True)
     ClientCode = db.Column(db.String(50), nullable=False)
     ProductCode = db.Column(db.String(50), nullable=False)
-    Date = db.Column(db.String(20), nullable=False) # Changed to String (varchar)
+    Date = db.Column(db.String(20), nullable=False) 
     Quantity = db.Column(db.Integer, nullable=False)
     EDIWeekNumber = db.Column(db.Integer, nullable=True)
-    ExpectedDeliveryDate = db.Column(db.String(20), nullable=True) # Changed to String (varchar)
+    ExpectedDeliveryDate = db.Column(db.String(20), nullable=True) 
     DeliveryNature = db.Column(db.String(100), nullable=True)
     DeliveredQuantity = db.Column(db.Integer, nullable=True)
 
@@ -64,10 +76,10 @@ class EdiRecord(db.Model):
             "ID": self.ID,
             "ClientCode": self.ClientCode,
             "ProductCode": self.ProductCode,
-            "Date": self.Date, # No longer needs .isoformat()
+            "Date": self.Date, 
             "Quantity": self.Quantity,
             "EDIWeekNumber": self.EDIWeekNumber,
-            "ExpectedDeliveryDate": self.ExpectedDeliveryDate, # No longer needs .isoformat()
+            "ExpectedDeliveryDate": self.ExpectedDeliveryDate,
             "DeliveryNature": self.DeliveryNature,
             "DeliveredQuantity": self.DeliveredQuantity
         }
@@ -125,8 +137,25 @@ def add_record():
         db.session.rollback()
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
+# --- Health check endpoint ---
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint to verify database connectivity."""
+    try:
+        # Test database connection
+        db.session.execute('SELECT 1')
+        return jsonify({"status": "healthy", "database": "connected"}), 200
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
+
 # --- Main execution ---
 if __name__ == '__main__':
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+            logging.info("Database tables created/verified successfully")
+        except Exception as e:
+            logging.error(f"Failed to create database tables: {str(e)}")
+            sys.exit(1)
+    
     app.run(host='127.0.0.1', port=5000, debug=True)
