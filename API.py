@@ -145,7 +145,7 @@ else:
 # --- Database Model Definition (only if using database) ---
 if USE_DATABASE and db_connected:
     class EdiRecord(db.Model):
-        __tablename__ = 'EDITunisia'
+        __tablename__ = 'edi_records'
 
         ID = db.Column(db.Integer, primary_key=True)
         ClientCode = db.Column(db.String(50), nullable=False)
@@ -201,7 +201,7 @@ def index():
         "environment": "Azure" if "azure" in DB_HOST.lower() else "Local"
     })
 
-@app.route('/records', methods=['GET'])
+@app.route('/display', methods=['GET'])
 def get_records():
     """Retrieves all EDI records."""
     try:
@@ -219,7 +219,7 @@ def get_records():
         logging.error(f"Unexpected error in get_records: {str(e)}")
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-@app.route('/records', methods=['POST'])
+@app.route('/insert', methods=['POST'])
 def add_record():
     """Adds a new EDI record."""
     data = request.get_json()
